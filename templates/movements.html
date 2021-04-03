@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Movimientos Generales</title>
+</head>
+<body>
+    <h1>Movimientos de todos los usuarios</h1>
+    <div>
+        {movimientos}        
+    </div>
+    <h2>Cantidad de transacciones: </h2>
+    <div>
+        <p>Cantidad total de transacciones realizadas: {numero_transacciones}</p>
+        <span>Total dinero movido en transacciones: </span><strong>{total_transacciones}</strong>
+    </div>
+    <p /> <p />
+    <h2>Retiros de los clientes: </h2>
+    <div>
+        {retiros}
+    </div>
+    <div>
+        <p>Cantidad total de retiros realizados: {numero_retiros}</p>        
+        <span>Total dinero retirado: </span><strong>{total_retiros}</strong>
+    </div>
+    <script type="text/javascript">
+        let x = {movimientos};
+        console.log("movimientos: ",x);
+    </script>
+</body>
+</html>
