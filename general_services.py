@@ -28,6 +28,7 @@ def get_json_decoded(environ):
 def exists_user(user_nit):
     collections = users_db()
     result = collections.find_one({'user_nit': user_nit})
+    print("RESULT DE EXISTS USER: ",result)
     band = False
     if result != None:
         band = True

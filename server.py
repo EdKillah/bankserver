@@ -202,6 +202,7 @@ def make_transaction(environ):
     usuario_activo = get_usuario_activo()
     json = get_json_decoded(environ)
     if compare_passwords(json['password'], usuario_activo['user_password']):
+        print("LAS CONTRASEÑAS SON LAS MISMAS: ",json['password'])
         if exists_user(json['cuenta_destino']):
             json = prepare_transaction(json)
             if(json != None):
@@ -210,13 +211,16 @@ def make_transaction(environ):
         else:
             return render_template(
                 template_name=templates+'transaction_form.html',
-                context={'message': 'El destinatario no existe', 'user': usuario_activo['user_name']+usuario_activo['user_lastname']})
+                context={'message': 'El destinatario no existe', 'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo':usuario_activo['saldo'] })
     else:
+        print("LAS CONTRASEÑAS NO SON LO MISMO!!!: ",json["password"],usuario_activo['user_password'])
+        #context={'message': '', 'user': user, 'saldo': usuario_activo['saldo']}
         return render_template(
             template_name=templates+'transaction_form.html',
             context={'message': 'Contraseña incorrecta.',
-                     'user': usuario_activo['user_name']+usuario_activo['user_lastname']}
+                     'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo':usuario_activo['saldo']}
         )
+    print("paso del ELSE LE DA IGUAL******************")
     return render_template(
         template_name=templates+'index.html',
         context={'message': 'Realizo la transaccion'}
@@ -229,11 +233,16 @@ def solicitar_sobregiro(environ):
     json['solicitante'] = usuario_activo['user_nit']
     collections = sobregiros_activos_db()
     print("\n COLLECTIONS EN SOLICITAR SOBREGIRO USUARIO: ",collections, "\n")
-    collections.insert_one(json)
-
+    tiene_sobregiro= collections.find_one({'solicitante': usuario_activo['user_nit']})
+    
+    if(tiene_sobregiro==None):
+        collections.insert_one(json)
+        message = 'Ha solicitado un sobregiro'
+    else:
+        message = 'TIENE SOBREGIROS PENDIENTES, NO SE REALIZO SOBREGIRO.'
     return render_template(
         template_name=templates+'index.html',
-        context={'message': 'Solicito un sobregiro'}
+        context={'message': message}
     )
 
 
@@ -241,18 +250,27 @@ def solicitar_sobregiro(environ):
 def hacer_retiro(environ):
     usuario_activo = get_usuario_activo()
     json = get_json_decoded(environ)
+    if compare_passwords(json['password'], usuario_activo['user_password']):
+        user_collection = users_db()
+        retiros_collection = retiros_db()
+        cash = int(json['monto'])
 
-    user_collection = users_db()
-    retiros_collection = retiros_db()
-    cash = int(json['monto'])
-    user_collection.update_one({"user_nit": usuario_activo['user_nit']}, {
+        user_collection.update_one({"user_nit": usuario_activo['user_nit']}, {
                                "$inc": {"saldo": -cash}})
 
-    json['usuario_retiro'] = usuario_activo['user_nit']
-    json['monto'] = cash
-    json['fecha'] = get_date_now()
-    del json['password']
-    retiros_collection.insert_one(json)
+        json['usuario_retiro'] = usuario_activo['user_nit']
+        json['monto'] = cash
+        json['fecha'] = get_date_now()
+        del json['password']
+        retiros_collection.insert_one(json)
+    else:
+        print("LAS CONTRASEÑAS NO SON LO MISMO!!!: ",json["password"],usuario_activo['user_password'])
+        #context={'message': '', 'user': user, 'saldo': usuario_activo['saldo']}
+        return render_template(
+            template_name=templates+'retiro.html',
+            context={'message': 'Contraseña incorrecta.',
+                     'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo':usuario_activo['saldo']}
+        )
     return render_template(
         template_name=templates+'index.html',
         context={'message': 'Ha realizado un retiro.'}
@@ -373,8 +391,8 @@ def app(environ, start_response):
             return prueba(environ, start_response)
 
     if(usuario_activo != None): #validate_user()
-        print("EL USUARIO ESTA LOGUEADO: ",usuario_activo, "PATh: ",path)
-        print("tipo usuario activo: ",type(usuario_activo))
+        #print("EL USUARIO ESTA LOGUEADO: ",usuario_activo, "PATh: ",path)
+        #print("tipo usuario activo: ",type(usuario_activo))
         if(environ.get("REQUEST_METHOD") == 'POST'):
             if(path.startswith("/admin") & (usuario_activo['rol_user'] == 'admin')):
                 params = path.split("/")

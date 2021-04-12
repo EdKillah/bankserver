@@ -153,26 +153,42 @@ def autorizar_sobregiro(environ):
     json = get_json_decoded(environ)
     print("\n json en aturoizar sobregiro {} :".format(json),"\n")    
     collections = sobregiros_activos_db()
-    print("\nSOLICITANTE: ",collections.find_one({"solicitante": json['nit_solicitante']}),"\n")
-    sobregiro = collections.find_one({"solicitante": json['nit_solicitante']})
-    sobregiro['estado'] = json['estado_sobregiro']
-    sobregiro['revisador_por'] = usuario_activo['user_name']+" "+usuario_activo['user_lastname']
-    print("\n SOBRGIRO: ",sobregiro,"\n")
-    historial_sobregiros = sobregiros_db()
-    historial_sobregiros.insert(sobregiro)
-    collections.remove({"solicitante":sobregiro['solicitante']})
-    '''
-    collections.update_one({"solicitante": json['nit_solicitante']}, {
-        "$set": {"estado": json['estado_sobregiro']}})
-    collections.update_one({"solicitante": json['nit_solicitante']}, {"$set": {
-        "revisado_por": usuario_activo['user_name']+" "+usuario_activo['user_lastname']}})
-    '''
-    results = collections.find()
-    sobregiros = find_all(results)
-    print("Sobregiros final: ",sobregiros)
-    
+    solicitante = collections.find_one({"solicitante": json['nit_solicitante']})
+    print("\nSOLICITANTE: ",solicitante,"\n")
+    if(solicitante!= None):
+        sobregiro = collections.find_one({"solicitante": json['nit_solicitante']})
+        sobregiro['estado'] = json['estado_sobregiro']
+        sobregiro['revisador_por'] = usuario_activo['user_name']+" "+usuario_activo['user_lastname']
+        print("\n SOBRGIRO: ",sobregiro,"\n")
+        historial_sobregiros = sobregiros_db()
+        historial_sobregiros.insert(sobregiro)
+        
+        '''
+        collections.update_one({"solicitante": json['nit_solicitante']}, {
+            "$set": {"estado": json['estado_sobregiro']}})
+        collections.update_one({"solicitante": json['nit_solicitante']}, {"$set": {
+            "revisado_por": usuario_activo['user_name']+" "+usuario_activo['user_lastname']}})
+        '''
+        bank_users = users_db()
+        #ACA PUEDE QUE ME MANDEN NUMEROS NEGATIVOS Y LE PUEDA QUITAR DINERO A LA PERSONA?
+        if(sobregiro["estado"]=="aprobado"):
+            cash = int(solicitante['cantidad'])
+            bank_users.update_one({"user_nit": json["nit_solicitante"]}, {
+                "$inc": {"saldo": cash}
+            })
+        collections.remove({"solicitante":sobregiro['solicitante']})
+        results = collections.find()
+        sobregiros = find_all(results)
+        print("Sobregiros final: ",sobregiros)
+        message = "Sobregiro evaluado con exito"
+    else:
+        message = "El solicitante no existe."        
+        '''El siguiente codigo se repite en la parte de arriba mirar como optimizamos'''
+        results = collections.find()
+        sobregiros = find_all(results)
     return render_template(
         template_name=templates+'sobregiros.html',
-        context={'message': '', 'sobregiros': sobregiros}
+        context={'message': message, 'sobregiros': sobregiros}
     )
+    
 
