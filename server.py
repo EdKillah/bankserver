@@ -7,6 +7,8 @@ from persistence.databases import *
 from admin_controllers import *
 from general_services import *
 from usuario_activo import *
+intentos_login = 0
+cuentas_login = {}
 
 templates = get_templates_route()
 
@@ -41,7 +43,7 @@ def registro_usuario(environ):
 def get_login(environ):
     return render_template(
         template_name=templates+'login.html',
-        context={}
+        context={'message': ''}
     )
 
 
@@ -59,8 +61,6 @@ def get_movimientos_cliente(environ):
         template_name=templates+'movimientos_cliente.html',
         context={'movimientos': movimientos, 'retiros': retiros}
     )
-
-
 
 
 def get_transaction_view(environ):
@@ -86,7 +86,6 @@ def get_retiro_view(environ):
     )
 
 
-
 def get_sobregiro_view(environ):
     usuario_activo = get_usuario_activo()
     user = 'Usuario: ' + \
@@ -102,7 +101,8 @@ def get_sobregiro_view(environ):
 
 def get_sobregiros_auditor(environ):
     usuario_activo = get_usuario_activo()
-    user = 'Usuario: '+usuario_activo['user_name']+' '+usuario_activo['user_lastname']
+    user = 'Usuario: '+usuario_activo['user_name'] + \
+        ' '+usuario_activo['user_lastname']
     collections = sobregiros_db()
     results = collections.find()
     sobregiros = find_all(results)
@@ -127,7 +127,7 @@ def create_user(environ):
         collections.insert_one(user)
         return render_template(
             template_name=templates+'login.html',
-            context={}
+            context={'message': ''}
         )
     else:
         return render_template(
@@ -135,43 +135,66 @@ def create_user(environ):
             context={"message": "Usuario no activo."}
         )
 
+''''
+revisar lo de users y admin para pedir el correo para optimizar
+configurar y comprobar que se tiene un intento de login de mas de 3 veces
+restringirlo llevandolo a una nueva ventana y bloqueando el acceso a la cuenta.
+tipo una collection donde se bloqueen las cuentas y no se pueda acceder a ellas hasta que se
+desbloqueen manualmente.
+'''
 
 def login(environ):
+    global intentos_login
     #global usuario_activo
     json = get_json_decoded(environ)
-    
     user = get_user_by_mail(json['user_mail'], 'users')
-    message = {'message': 'Usuario o contraseña incorrectos!'}
-
-    if(user != None):
-        if(user['user_password'] == json['user_password']):
-            message['message'] = 'Logueado con exito!'
-            #usuario_activo = user
-            set_usuario_activo(user)
-
-        return render_template(
-            template_name=templates+'index.html',
-            context={'message': message['message']}
-        )
+    print("\n USEEEEEEEEEEEEEER: ", user)
+    #user_mail = user['user_mail']
+    print("\n intentos_login:{} \n".format(intentos_login))
+    if((user != None)):
+        if ((user['user_mail'] in cuentas_login) and (cuentas_login[user['user_mail']] > 2)):
+            print("\nESTAN ATACANDO LA CUENTA: ",
+                  user['user_mail'], "*******\n")
     else:
-        user = get_user_by_mail(json['user_mail'], 'administrators')
-        if(user!=None):
+        message = {'message': 'Usuario o contraseña incorrectos!'}
+        print("\n *********USER LOGIN: ", user)
+        if user['user_mail'] in cuentas_login:
+            cuentas_login[user['user_mail']] += 1
+        else:
+            cuentas_login[user['user_mail']] = 1
+        if(user != None):
             if(user['user_password'] == json['user_password']):
                 message['message'] = 'Logueado con exito!'
-                #usuario_activo = user                
+                #usuario_activo = user
                 set_usuario_activo(user)
+            else:
+                intentos_login = intentos_login + 1
+            return render_template(
+                template_name=templates+'login.html',
+                context={'message': message['message']}
+            )
         else:
-            user = get_user_by_mail(json['user_mail'], 'auditors')
-            if(user!=None):
+            user = get_user_by_mail(json['user_mail'], 'administrators')
+            if(user != None):
                 if(user['user_password'] == json['user_password']):
                     message['message'] = 'Logueado con exito!'
+                    #usuario_activo = user
                     set_usuario_activo(user)
-                    #usuario_activo = user                
-        return render_template(
-            template_name=templates+'index.html',
-            context={'message': message['message']}
-        )
-
+                else:
+                    intentos_login = intentos_login + 1
+            else:
+                user = get_user_by_mail(json['user_mail'], 'auditors')
+                if(user != None):
+                    if(user['user_password'] == json['user_password']):
+                        message['message'] = 'Logueado con exito!'
+                        set_usuario_activo(user)
+                        #usuario_activo = user
+                    else:
+                        intentos_login = intentos_login + 1
+            return render_template(
+                template_name=templates+'index.html',
+                context={'message': message['message']}
+            )
 
 
 def get_date_now():
@@ -184,7 +207,7 @@ def get_date_now():
 def prepare_transaction(json):
     monto = int(json['monto'])
     usuario_activo = get_usuario_activo()
-    if(usuario_activo['saldo'] >= monto):        
+    if(usuario_activo['saldo'] >= monto):
         json["cuenta_origen"] = usuario_activo['user_nit']
         json["fecha"] = get_date_now()
         collection = users_db()
@@ -202,7 +225,7 @@ def make_transaction(environ):
     usuario_activo = get_usuario_activo()
     json = get_json_decoded(environ)
     if compare_passwords(json['password'], usuario_activo['user_password']):
-        print("LAS CONTRASEÑAS SON LAS MISMAS: ",json['password'])
+        print("LAS CONTRASEÑAS SON LAS MISMAS: ", json['password'])
         if exists_user(json['cuenta_destino']):
             json = prepare_transaction(json)
             if(json != None):
@@ -211,14 +234,15 @@ def make_transaction(environ):
         else:
             return render_template(
                 template_name=templates+'transaction_form.html',
-                context={'message': 'El destinatario no existe', 'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo':usuario_activo['saldo'] })
+                context={'message': 'El destinatario no existe', 'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo': usuario_activo['saldo']})
     else:
-        print("LAS CONTRASEÑAS NO SON LO MISMO!!!: ",json["password"],usuario_activo['user_password'])
+        print("LAS CONTRASEÑAS NO SON LO MISMO!!!: ",
+              json["password"], usuario_activo['user_password'])
         #context={'message': '', 'user': user, 'saldo': usuario_activo['saldo']}
         return render_template(
             template_name=templates+'transaction_form.html',
             context={'message': 'Contraseña incorrecta.',
-                     'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo':usuario_activo['saldo']}
+                     'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo': usuario_activo['saldo']}
         )
     print("paso del ELSE LE DA IGUAL******************")
     return render_template(
@@ -232,10 +256,11 @@ def solicitar_sobregiro(environ):
     json = get_json_decoded(environ)
     json['solicitante'] = usuario_activo['user_nit']
     collections = sobregiros_activos_db()
-    print("\n COLLECTIONS EN SOLICITAR SOBREGIRO USUARIO: ",collections, "\n")
-    tiene_sobregiro= collections.find_one({'solicitante': usuario_activo['user_nit']})
-    
-    if(tiene_sobregiro==None):
+    print("\n COLLECTIONS EN SOLICITAR SOBREGIRO USUARIO: ", collections, "\n")
+    tiene_sobregiro = collections.find_one(
+        {'solicitante': usuario_activo['user_nit']})
+
+    if(tiene_sobregiro == None):
         collections.insert_one(json)
         message = 'Ha solicitado un sobregiro'
     else:
@@ -244,7 +269,6 @@ def solicitar_sobregiro(environ):
         template_name=templates+'index.html',
         context={'message': message}
     )
-
 
 
 def hacer_retiro(environ):
@@ -256,7 +280,7 @@ def hacer_retiro(environ):
         cash = int(json['monto'])
 
         user_collection.update_one({"user_nit": usuario_activo['user_nit']}, {
-                               "$inc": {"saldo": -cash}})
+            "$inc": {"saldo": -cash}})
 
         json['usuario_retiro'] = usuario_activo['user_nit']
         json['monto'] = cash
@@ -264,12 +288,13 @@ def hacer_retiro(environ):
         del json['password']
         retiros_collection.insert_one(json)
     else:
-        print("LAS CONTRASEÑAS NO SON LO MISMO!!!: ",json["password"],usuario_activo['user_password'])
+        print("LAS CONTRASEÑAS NO SON LO MISMO!!!: ",
+              json["password"], usuario_activo['user_password'])
         #context={'message': '', 'user': user, 'saldo': usuario_activo['saldo']}
         return render_template(
             template_name=templates+'retiro.html',
             context={'message': 'Contraseña incorrecta.',
-                     'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo':usuario_activo['saldo']}
+                     'user': usuario_activo['user_name']+usuario_activo['user_lastname'], 'saldo': usuario_activo['saldo']}
         )
     return render_template(
         template_name=templates+'index.html',
@@ -278,7 +303,7 @@ def hacer_retiro(environ):
 
 
 def create_administrator(environ):
-    
+
     json = get_json_decoded(environ)
     #collection = administrators_db()
     collection = auditors_db()
@@ -289,13 +314,10 @@ def create_administrator(environ):
     )
 
 
-
-
 def posts(environ, path):
 
     if ((path == "/login")):
         data = login(environ)
-
 
     elif(path == "/make_transaction"):
         data = make_transaction(environ)
@@ -309,15 +331,13 @@ def posts(environ, path):
     return data
 
 
-
-
 def gets(environ, path):
     if path == "":
         data = home(environ)
 
     elif path == "/login":
         data = get_login(environ)
-    
+
     elif path == "/transferencia":
         data = get_transaction_view(environ)
 
@@ -331,18 +351,16 @@ def gets(environ, path):
         data = get_sobregiro_view(environ)
 
     else:
+        print("----------------ESTA EN GETS NORMALES RETORNANDO 404--------------------")
         data = render_template(template_name=templates +
                                '404.html', context={"path": path})
 
     return data
 
 
-
-
-
 def gets_auditor(environ, path):
 
-    path = '/'+path        
+    path = '/'+path
 
     if path == "/movimientos":
         data = get_total_movimientos(environ)
@@ -351,22 +369,21 @@ def gets_auditor(environ, path):
         data = get_sobregiros_auditor(environ)
 
     elif path == "/informacion_dinero":
-        data = get_all_money(environ)    
+        data = get_all_money(environ)
 
     else:
         data = render_template(template_name=templates +
                                '404.html', context={"path": path})
 
-    return data    
-
+    return data
 
 
 def prueba(environ, start_response):
     headers = [('content-type', 'application/json'), ('Access-Control-Allow-Origin', '*'),
-                ('Access-Control-Allow-Headers', 'Authorization, Content-Type'),
-                ('Access-Control-Allow-Methods', 'POST')]
-    test = json.dumps(['foo', {'bar': ('baz', None, 1.0, 2)}])    
-    test1 = bytes(test, 'utf-8') # or test.encode('utf-8')
+               ('Access-Control-Allow-Headers', 'Authorization, Content-Type'),
+               ('Access-Control-Allow-Methods', 'POST')]
+    test = json.dumps(['foo', {'bar': ('baz', None, 1.0, 2)}])
+    test1 = bytes(test, 'utf-8')  # or test.encode('utf-8')
     start_response('200 OK', headers)
     return [test1]
 
@@ -376,7 +393,7 @@ def prueba(environ, start_response):
 
 def app(environ, start_response):
     usuario_activo = get_usuario_activo()
-    print("usuario activo app: ",usuario_activo)
+    print("usuario activo app: ", usuario_activo)
 
     path = environ.get("PATH_INFO")
     print("path: ", path)
@@ -384,33 +401,33 @@ def app(environ, start_response):
         path = path[:-1]
     if(environ.get("REQUEST_METHOD") == 'POST') & (path == '/login') & (usuario_activo == None):
         data = login(environ)
-    
-    if(environ.get("REQUEST_METHOD") == 'GET'):
-        if(path=='/json'):
+
+    if((environ.get("REQUEST_METHOD") == 'GET') and (('css' in path) == False)):
+        if(path == '/json'):
             print("ENTRA EN JSON PATH! VA A RETORNAR EL JSON")
             return prueba(environ, start_response)
 
-    if(usuario_activo != None): #validate_user()
+    if(usuario_activo != None):  # validate_user()
         #print("EL USUARIO ESTA LOGUEADO: ",usuario_activo, "PATh: ",path)
         #print("tipo usuario activo: ",type(usuario_activo))
         if(environ.get("REQUEST_METHOD") == 'POST'):
             if(path.startswith("/admin") & (usuario_activo['rol_user'] == 'admin')):
                 params = path.split("/")
                 ruta = params[-1]
-                data = posts_admin(environ, ruta)                            
+                data = posts_admin(environ, ruta)
 
             else:
                 data = posts(environ, path)
 
-        elif(environ.get("REQUEST_METHOD") == 'GET'):            
-            ##Metodo de prueba de json:
-            if(path=='/json'):
+        elif(environ.get("REQUEST_METHOD") == 'GET'):
+            # Metodo de prueba de json:
+            if(path == '/json'):
                 print("ENTRA EN JSON PATH! VA A RETORNAR EL JSON")
                 return prueba(environ, start_response)
             if(path.startswith("/admin") & (usuario_activo['rol_user'] == 'admin')):
                 params = path.split("/")
                 if((len(params) > 3) & (params[2] == 'client')):
-                    ruta = params[2]+'/'+params[3]                    
+                    ruta = params[2]+'/'+params[3]
                 else:
                     ruta = params[-1]
                 data = gets_admin(environ, ruta)
@@ -423,10 +440,10 @@ def app(environ, start_response):
                 data = gets(environ, path)
 
     else:
-        print("NO ESTA LOGUEADO: ",path)
+        print("NO ESTA LOGUEADO: ", path)
         if path == "/registrar_cuenta":
             data = registro_usuario(environ)
-        elif ((path == "/create_account")):            
+        elif ((path == "/create_account")):
             data = create_user(environ)
             #data = create_administrator(environ)
         elif ((path == "/login") & (environ.get("REQUEST_METHOD") == 'GET')):
@@ -434,8 +451,11 @@ def app(environ, start_response):
         elif (path == ""):
             data = get_login(environ)
         else:
-            data = render_template(template_name=templates +
-                               '404.html', context={"path": path})
+            if(environ.get("REQUEST_METHOD") == 'GET') and (('css' in path) == False):
+
+                print("*-*-*-*-*-*-*-ESTA EN 404 DEL LOGIN*-*-*-*-*-*-*-*-*")
+                data = render_template(template_name=templates +
+                                       '404.html', context={"path": path})
 
     data = data.encode("utf-8")
     start_response(
@@ -445,4 +465,3 @@ def app(environ, start_response):
         ]
     )
     return iter([data])
- 
