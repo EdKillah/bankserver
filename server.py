@@ -136,65 +136,62 @@ def create_user(environ):
         )
 
 ''''
-revisar lo de users y admin para pedir el correo para optimizar
-configurar y comprobar que se tiene un intento de login de mas de 3 veces
 restringirlo llevandolo a una nueva ventana y bloqueando el acceso a la cuenta.
 tipo una collection donde se bloqueen las cuentas y no se pueda acceder a ellas hasta que se
 desbloqueen manualmente.
 '''
 
 def login(environ):
-    global intentos_login
-    #global usuario_activo
+    global intentos_login    
     json = get_json_decoded(environ)
-    user = get_user_by_mail(json['user_mail'], 'users')
-    print("\n USEEEEEEEEEEEEEER: ", user)
-    #user_mail = user['user_mail']
-    print("\n intentos_login:{} \n".format(intentos_login))
-    if((user != None)):
-        if ((user['user_mail'] in cuentas_login) and (cuentas_login[user['user_mail']] > 2)):
-            print("\nESTAN ATACANDO LA CUENTA: ",
-                  user['user_mail'], "*******\n")
-    else:
+    user = get_user_by_mail(json['user_mail'], 'users')    
+    bloqueos = bloqueos_db()
+    if(user == None):
+        user = get_user_by_mail(json['user_mail'], 'administrators')
+        if(user == None):
+            user = get_user_by_mail(json['user_mail'], 'auditors')
+    #Confirma si el usuario existe con alguno de los 3 roles
+    if(user!=None):
+        print("\n EL USUARIO EXISTE: ", user)        
+        print("\n intentos_login:{} \n".format(intentos_login))
         message = {'message': 'Usuario o contraseña incorrectos!'}
-        print("\n *********USER LOGIN: ", user)
-        if user['user_mail'] in cuentas_login:
-            cuentas_login[user['user_mail']] += 1
-        else:
-            cuentas_login[user['user_mail']] = 1
-        if(user != None):
-            if(user['user_password'] == json['user_password']):
-                message['message'] = 'Logueado con exito!'
+        template = templates+'index.html'
+        #Buscamos si la cuenta se encuentra bloqueada o no para acceder
+        cuenta_bloqueada = bloqueos.find_one({'mail': user['user_mail']})
+        if(cuenta_bloqueada == None):
+
+            if ((user['user_mail'] in cuentas_login) and (cuentas_login[user['user_mail']] > 2)):
+                print("\nESTAN ATACANDO LA CUENTA: ",user['user_mail'], "*******\n")            
+                bloqueos.insert_one({'mail': user['user_mail'], 'intentos': cuentas_login[user['user_mail']], 'fecha': get_date_now()})                
+                message['message'] = 'SE HA BLOQUEADO LA CUENTA POR INTENTOS DE ACCESO.'
+
+            elif(user['user_password'] == json['user_password']):
+                message['message'] = 'Logueado con exito!'                
+                if(user['user_mail'] in cuentas_login):
+                    del cuentas_login[user['user_mail']]
+                print("CUENTAS LOGIN: ",cuentas_login)
                 #usuario_activo = user
-                set_usuario_activo(user)
+                set_usuario_activo(user)                
             else:
                 intentos_login = intentos_login + 1
-            return render_template(
-                template_name=templates+'login.html',
-                context={'message': message['message']}
-            )
-        else:
-            user = get_user_by_mail(json['user_mail'], 'administrators')
-            if(user != None):
-                if(user['user_password'] == json['user_password']):
-                    message['message'] = 'Logueado con exito!'
-                    #usuario_activo = user
-                    set_usuario_activo(user)
-                else:
-                    intentos_login = intentos_login + 1
+                template = templates+'login.html'
+            if user['user_mail'] in cuentas_login:
+                cuentas_login[user['user_mail']] += 1
             else:
-                user = get_user_by_mail(json['user_mail'], 'auditors')
-                if(user != None):
-                    if(user['user_password'] == json['user_password']):
-                        message['message'] = 'Logueado con exito!'
-                        set_usuario_activo(user)
-                        #usuario_activo = user
-                    else:
-                        intentos_login = intentos_login + 1
-            return render_template(
-                template_name=templates+'index.html',
-                context={'message': message['message']}
-            )
+                cuentas_login[user['user_mail']] = 1
+        else: 
+            message['message'] = 'ESTA CUENTA SE ENCUENTRA BLOQUEADA.'            
+        return render_template(
+            template_name=template,
+            context={'message': message['message']}
+        )    
+    else:                        
+        print("\n EL CORREO NO EXISTE \n")
+        return render_template(
+            template_name=templates+'login.html',
+            context={'message': message['message']}
+        )
+    
 
 
 def get_date_now():

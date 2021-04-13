@@ -47,3 +47,7 @@ def sobregiros_activos_db():
 def retiros_db():
     collections = db['retiros']
     return collections
+
+def bloqueos_db():
+    collections = db['bloqueos']
+    return collections
